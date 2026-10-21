@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+  <!-- Brand Canvas Background -->
+  <rect width="40" height="40" rx="10" fill="#243628" />
+
+  <!-- Pot Lid Arc -->
+  <path d="M7 23C7 16.5 12.8 11.5 20 11.5C27.2 11.5 33 11.5 33 23H7Z" stroke="#FFFFFF" stroke-width="2.2" stroke-linejoin="round" fill="none" />
+
+  <!-- Pot Handle Ring -->
+  <path d="M17.5 11.5C17.5 9.5 18.5 8 20 8C21.5 8 22.5 9.5 22.5 11.5" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" fill="none" />
+
+  <!-- Tasting Spoon / Ladle Line -->
+  <path d="M12 28.5H28" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" />
+  <circle cx="28" cy="28.5" r="2.5" fill="#FF7A4D" />
+</svg>
