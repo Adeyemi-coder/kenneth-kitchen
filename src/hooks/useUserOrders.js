@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { MOCK_ORDER_HISTORY } from '../features/discovery/vendorData';
 
 const getOrdersKey = (email) => `kk_orders_${(email ?? 'guest').toLowerCase()}`;
 
@@ -8,10 +7,8 @@ const readLocalOrders = (email) => {
   try {
     const raw = localStorage.getItem(getOrdersKey(email));
     if (raw) return JSON.parse(raw);
-    if (MOCK_ORDER_HISTORY?.length > 0) {
-      localStorage.setItem(getOrdersKey(email), JSON.stringify(MOCK_ORDER_HISTORY));
-      return MOCK_ORDER_HISTORY;
-    }
+    
+    // If there is no data, return an empty array. No more mock data!
     return [];
   } catch {
     return [];
