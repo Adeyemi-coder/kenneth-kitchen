@@ -1,11 +1,28 @@
-import React, { createContext, useContext, useState, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 
 // Explicit named export of the Context instance
 export const CartContext = createContext(null);
 
 // Explicit named export for CartProvider
 export function CartProvider({ children }) {
-  const [cartItems, setCartItems] = useState([]);
+  // 1. Initialize from localStorage (so it survives reloads)
+  const [cartItems, setCartItems] = useState(() => {
+    try {
+      const saved = localStorage.getItem('kk_cart');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // 2. Save to localStorage whenever the cart changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('kk_cart', JSON.stringify(cartItems));
+    } catch {
+      // Ignore errors (e.g., Safari private mode, storage full)
+    }
+  }, [cartItems]);
 
   const addItem = (item) => {
     if (!item) return;
@@ -71,7 +88,14 @@ export function CartProvider({ children }) {
     );
   };
 
-  const clearCart = () => setCartItems([]);
+  const clearCart = () => {
+    setCartItems([]);
+    try {
+      localStorage.removeItem('kk_cart'); // Explicitly wipe it on successful checkout
+    } catch {
+      // Ignore
+    }
+  };
 
   const subtotal = useMemo(() => {
     return cartItems.reduce((acc, item) => {
