@@ -11,7 +11,7 @@ const DEV = Boolean(import.meta.env.DEV);
 const nairaFormatter = new Intl.NumberFormat('en-NG', { maximumFractionDigits: 0 });
 const PAY_ON_DELIVERY_LIMIT = 15000;
 const SERVICE_FEE = 300;
-const DEFAULT_DELIVERY_FEE = 700; // used only when the kitchen sends no fee; the server must re-check totals
+const DEFAULT_DELIVERY_FEE = 700;
 const TRANSFER_WINDOW_MS = 29 * 60 * 1000 + 40 * 1000;
 const FOCUSABLE =
   'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
@@ -23,11 +23,6 @@ const PAYMENT_METHODS = [
   { id: 'pod', title: 'Pay on delivery', desc: `Cash or transfer to the rider. Up to ₦${nairaFormatter.format(PAY_ON_DELIVERY_LIMIT)}.` },
 ];
 
-// Phones: `vh` units count the area behind the browser's address bar and toolbar, so a vh-sized overlay or sheet
-// hangs off the bottom of the visible screen and hides the pay button. `dvh` tracks what is actually visible.
-// Scoped to phone widths and applied by attribute, so it works whatever the styles file defines and leaves
-// the desktop layout alone.
-// FIX: Changed 92dvh to 85dvh so it clears the Safari bottom toolbar
 const MOBILE_FIT_CSS = `@media (max-width: 639px) {
   [data-checkout-overlay] { height: 100dvh !important; max-height: 100dvh !important; }
   [data-checkout-panel] { max-height: 85dvh !important; display: flex !important; flex-direction: column !important; }
@@ -35,15 +30,6 @@ const MOBILE_FIT_CSS = `@media (max-width: 639px) {
 
 const makeKey = () => `order-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-/**
- * Optional props for real payments (without them, development builds simulate and production builds hide
- * the method instead of pretending):
- * - verifyPayment(session) + transferAccount, or requestTransferAccount({ amount, idempotencyKey, renew? })
- *   resolving { account, expiresAt, serverNow? }  -> bank transfer
- * - processCard({ number, expiry, cvv }, { amount, idempotencyKey })                       -> card
- * - submitOrder(order) resolving the saved order (for example { orderId })                -> saves the order
- * - enableUssd: true once your USSD flow exists; the order is then created as "Awaiting payment"
- */
 export default function CheckoutModal({
   isOpen,
   onClose,
@@ -65,11 +51,11 @@ export default function CheckoutModal({
   const [isPollingTransfer, setIsPollingTransfer] = useState(false);
   const [isProcessingCard, setIsProcessingCard] = useState(false);
   const [cardBusy, setCardBusy] = useState(false);
-  const [busy, setBusy] = useState(null); // a label while something is in flight, otherwise null
+  const [busy, setBusy] = useState(null);
   const [submitError, setSubmitError] = useState('');
   const [localAddress, setLocalAddress] = useState(null);
   const [isAddressOpen, setIsAddressOpen] = useState(false);
-  const [transferSession, setTransferSession] = useState(null); // { account, expiresAt, serverNow }
+  const [transferSession, setTransferSession] = useState(null);
   const [leaveOpen, setLeaveOpen] = useState(false);
 
   const panelRef = useRef(null);
@@ -78,7 +64,7 @@ export default function CheckoutModal({
   const restoreFocusRef = useRef(null);
   const uiRef = useRef({});
   const downOnOverlayRef = useRef(false);
-  const sessionRef = useRef(0); // bumps whenever checkout resets, so late async results are dropped
+  const sessionRef = useRef(0);
   const completingRef = useRef(false);
   const renewingRef = useRef(false);
   const retryRef = useRef(null);
@@ -105,12 +91,10 @@ export default function CheckoutModal({
     setIsAddressOpen(false);
   }, []);
 
-  // Closing by any route (our buttons, or the parent flipping isOpen) leaves nothing stale behind.
   useEffect(() => {
     if (!isOpen) resetCheckoutState();
   }, [isOpen, resetCheckoutState]);
 
-  // Scroll lock. `overflow: hidden` alone does not stop the page behind from scrolling on iOS Safari.
   useEffect(() => {
     if (!isOpen) return undefined;
     const html = document.documentElement;
@@ -135,7 +119,6 @@ export default function CheckoutModal({
     };
   }, [isOpen]);
 
-  // Give focus back to whatever opened the checkout.
   useEffect(() => {
     if (!isOpen) return undefined;
     restoreFocusRef.current = document.activeElement;
@@ -144,18 +127,16 @@ export default function CheckoutModal({
     };
   }, [isOpen]);
 
-  // Move focus to the title whenever the screen changes, so keyboard and screen-reader users start at the top.
   useEffect(() => {
     if (isOpen) titleRef.current?.focus({ preventScroll: true });
   }, [isOpen, isPollingTransfer, isProcessingCard]);
 
-  // Esc closes, and Tab stays inside the dialog.
   useEffect(() => {
     if (!isOpen) return undefined;
 
     const onKeyDown = (e) => {
       const ui = uiRef.current;
-      if (ui.isAddressOpen) return; // the address modal owns the keyboard while it is open
+      if (ui.isAddressOpen) return;
 
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -190,8 +171,6 @@ export default function CheckoutModal({
   }, [isOpen]);
 
   const orderEta = etaRange ?? cartItems[0]?.etaRange ?? null;
-
-  // Items with no vendor id count as "unknown" rather than being ignored, so they cannot hide a mixed cart.
   const kitchenCount = new Set(cartItems.map((i) => i.vendorId ?? i.vendorName ?? '__unknown__')).size;
   const mixedKitchens = kitchenCount > 1;
 
@@ -205,12 +184,7 @@ export default function CheckoutModal({
     if (m.id === 'pod') {
       return isPodDisabled ? `Not available for orders above ₦${nairaFormatter.format(PAY_ON_DELIVERY_LIMIT)}` : null;
     }
-    if (m.id === 'transfer') {
-      const ready = Boolean(verifyPayment) && Boolean(requestTransferAccount || transferAccount);
-      return !DEV && !ready ? 'Bank transfer is not available right now' : null;
-    }
-    if (m.id === 'card') return !DEV && !processCard ? 'Card payments are not available right now' : null;
-    if (m.id === 'ussd') return enableUssd ? null : 'USSD is coming soon';
+    // Allow the demo to run on production
     return null;
   };
 
@@ -221,8 +195,6 @@ export default function CheckoutModal({
 
   if (!isOpen) return null;
 
-  // One idempotency key per cart. Closing and reopening checkout with the same cart reuses it, so a retry
-  // can never become a second order. It resets when the cart changes or an order succeeds.
   const cartSignature = `${cartItems.map((i) => `${i.id ?? i.dishId ?? i.name}:${i.quantity}`).join('|')}|${grandTotal}`;
   const getIdempotencyKey = () => {
     if (keyRef.current.sig !== cartSignature) keyRef.current = { sig: cartSignature, key: makeKey() };
@@ -256,8 +228,6 @@ export default function CheckoutModal({
     const key = getIdempotencyKey();
 
     return {
-      // Local fallback id, derived from the key so two orders cannot collide the way a random 4-digit number can.
-      // When `submitOrder` returns an orderId, that one wins.
       orderId: `#${key.slice(-6).toUpperCase()}`,
       idempotencyKey: key,
       items: cartItems,
@@ -278,7 +248,6 @@ export default function CheckoutModal({
     };
   };
 
-  // Everything that creates an order goes through here, once. A second call while one is running is ignored.
   const handleCompleteOrder = async (status = 'Preparing', { paid = false } = {}) => {
     if (completingRef.current) return;
     completingRef.current = true;
@@ -316,7 +285,7 @@ export default function CheckoutModal({
   };
 
   const requestClose = () => {
-    if (cardBusy || busy || completingRef.current) return; // never abandon a charge or an order in flight
+    if (cardBusy || busy || completingRef.current) return;
     if (isPollingTransfer || isProcessingCard) {
       setLeaveOpen(true);
       return;
@@ -349,7 +318,6 @@ export default function CheckoutModal({
     retryRef.current = null;
 
     if (effectiveMethod === 'transfer') {
-      // Returning from "Pay another way" keeps the same account and the same deadline.
       if (transferSession && transferSession.expiresAt > Date.now()) {
         setIsPollingTransfer(true);
         return;
@@ -374,7 +342,6 @@ export default function CheckoutModal({
       return;
     }
 
-    // Card only switches the screen. Nothing is charged until the card form itself is submitted.
     if (effectiveMethod === 'card') {
       setIsProcessingCard(true);
       return;
@@ -385,13 +352,11 @@ export default function CheckoutModal({
       return;
     }
 
-    // USSD is only selectable once the app says its flow exists; the order waits for payment.
     if (effectiveMethod === 'ussd') {
       await handleCompleteOrder('Awaiting payment');
     }
   };
 
-  // The only path that starts a payment is the customer pressing the main button.
   const handlePrimaryAction = () => {
     if (busy || mixedKitchens || !effectiveMethod) return;
 
@@ -412,7 +377,6 @@ export default function CheckoutModal({
       if (requestTransferAccount) {
         await startTransferSession(true);
       } else if (DEV) {
-        // Development only: there is no server to issue a different account.
         setTransferSession((cur) => ({ account: cur?.account ?? transferAccount, expiresAt: Date.now() + TRANSFER_WINDOW_MS }));
       }
     } catch {
@@ -441,8 +405,6 @@ export default function CheckoutModal({
           downOnOverlayRef.current = e.target === e.currentTarget;
         }}
         onClick={(e) => {
-          // Only a press that both starts and ends on the dim backdrop closes it, and never mid-payment,
-          // so selecting text in a field and releasing outside the panel cannot throw the customer out.
           if (downOnOverlayRef.current && e.target === e.currentTarget && !onScreenWithEntry) requestClose();
           downOnOverlayRef.current = false;
         }}
@@ -602,11 +564,9 @@ export default function CheckoutModal({
             )}
           </div>
 
-          {/* The footer is hidden on the transfer and card screens, so the main button cannot be pressed twice. */}
           {!onScreenWithEntry && (
             <footer
               className={styles.footer}
-              /* THE FIX: Replaced max() with calc() and 1.5rem to push the button safely above the iPhone bottom bar */
               style={{ flexShrink: 0, paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
             >
               <div className="flex w-full flex-col gap-2">
@@ -661,7 +621,6 @@ export default function CheckoutModal({
             >
               {isPollingTransfer ? 'Cancel and leave' : 'Leave'}
             </button>
-            {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
             <button
               type="button"
               autoFocus
@@ -678,7 +637,6 @@ export default function CheckoutModal({
         isOpen={isAddressOpen}
         onClose={() => setIsAddressOpen(false)}
         onSaveAddress={(newAddress) => {
-          // Saving an address only saves the address. The customer reviews the order and presses pay themselves.
           saveAddress(newAddress);
           setIsAddressOpen(false);
         }}

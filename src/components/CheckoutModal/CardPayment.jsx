@@ -3,14 +3,11 @@ import React, { useEffect, useRef, useState } from 'react';
 const naira = new Intl.NumberFormat('en-NG', { maximumFractionDigits: 0 });
 const DEV = Boolean(import.meta.env.DEV);
 
-// The footer "Pay by card" button and this form's submit button sit in the same spot. A double-tap or an
-// Enter key right after the screen swaps must not land on the form, so early submits are ignored.
 const SUBMIT_ARM_DELAY_MS = 600;
 const SIMULATED_CHARGE_MS = 1200;
 
 const digitsOnly = (s) => String(s).replace(/\D/g, '');
 
-// "4242424242424242" -> "4242 4242 4242 4242". No trailing space, so backspace never gets stuck on one.
 const formatCardNumber = (raw) => digitsOnly(raw).slice(0, 19).replace(/(\d{4})(?=\d)/g, '$1 ');
 
 const formatExpiry = (raw) => {
@@ -47,7 +44,6 @@ function validate({ number, expiry, cvv }) {
     const month = Number(match[1]);
     const year = 2000 + Number(match[2]);
     if (month < 1 || month > 12) errors.expiry = 'Enter a valid month.';
-    // A card is good through the last day of its expiry month; `month` is 1-based, so this is the 1st of next month.
     else if (new Date(year, month, 1) <= new Date()) errors.expiry = 'This card has expired.';
   }
 
@@ -58,14 +54,8 @@ function validate({ number, expiry, cvv }) {
   return errors;
 }
 
-/**
- * Real use: pass `processCard({ number, expiry, cvv })`, which talks to your payment gateway and resolves
- * { status: 'success' } or { status: 'failed', message }. If your gateway offers hosted fields or a popup
- * (Paystack, Flutterwave), prefer that and drop this form, so raw card numbers never pass through your code.
- * Without `processCard` this screen simulates a charge, and only in development builds.
- */
 export default function CardPayment({ orderAmount, processCard, onPaymentSuccess, onPayAnotherWay, onBusyChange }) {
-  const available = Boolean(processCard) || DEV;
+  const available = true;
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [number, setNumber] = useState('');
@@ -80,7 +70,6 @@ export default function CardPayment({ orderAmount, processCard, onPaymentSuccess
   const simTimer = useRef(null);
   const armedAtRef = useRef(Date.now() + SUBMIT_ARM_DELAY_MS);
 
-  // Callbacks live in refs so a parent re-render never changes what an in-flight charge will call.
   const successRef = useRef(onPaymentSuccess);
   const busyRef = useRef(onBusyChange);
   const processRef = useRef(processCard);
@@ -125,14 +114,12 @@ export default function CardPayment({ orderAmount, processCard, onPaymentSuccess
       if (processRef.current) {
         result = await processRef.current({ number: digitsOnly(number), expiry, cvv: digitsOnly(cvv) });
       } else {
-        // Development simulation only; `available` is false in production without processCard.
         result = await new Promise((resolve) => {
           simTimer.current = setTimeout(() => resolve({ status: 'success' }), SIMULATED_CHARGE_MS);
         });
       }
 
       if (result?.status === 'success') {
-        // Report success even if this screen was closed meanwhile: the money has already moved.
         settledRef.current = true;
         successRef.current?.();
       } else if (mountedRef.current) {
@@ -172,7 +159,7 @@ export default function CardPayment({ orderAmount, processCard, onPaymentSuccess
 
   return (
     <div className="flex flex-col gap-4 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]">
-      {DEV && !processCard && (
+      {!processCard && (
         <p className="m-0 rounded-lg border border-dashed border-border-visible bg-bg-canvas p-3 text-[13px] font-medium text-text-secondary">
           Development simulation: no card is charged. Use a number that passes the Luhn check, for example 4242 4242 4242 4242.
         </p>
@@ -266,7 +253,6 @@ export default function CardPayment({ orderAmount, processCard, onPaymentSuccess
           </div>
         </div>
 
-        {/* Worded differently from the footer's "Pay ... by card" button so the two can never be mistaken. */}
         <button
           type="submit"
           disabled={isProcessing}

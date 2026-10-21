@@ -1,27 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 const naira = new Intl.NumberFormat('en-NG', { maximumFractionDigits: 0 });
-const DEV = Boolean(import.meta.env.DEV);
 const DEFAULT_WINDOW_MS = 29 * 60 * 1000 + 40 * 1000;
-// Keep checking for a while after the account expires: a slow bank can still deliver a transfer sent in time.
 const LATE_PAYMENT_GRACE_MS = 15 * 60 * 1000;
 
-// The demo account exists ONLY in development. A production build with no real account shows an
-// "unavailable" screen instead of a fake account number a customer could send money to.
 const DEMO_ACCOUNT = {
   bankName: 'Simulation Bank',
   accountNumber: '0000000000',
   accountName: 'Test account. No money moves.',
 };
 
-/**
- * Real use: pass `account` ({ bankName, accountNumber, accountName }), `expiresAt` (ms timestamp from your
- * server) and `verifyPayment()` returning { status: 'paid' | 'partial' | 'pending' | 'expired', paid?: number }.
- * Pass `serverNow` (your server's clock in ms, read when you issued the account) so the countdown is not
- * thrown off by a wrong clock on the customer's phone.
- * Without verifyPayment this runs in demo mode, which works only while developing. In production the screen
- * refuses to run without it, because nothing could confirm that money arrived.
- */
 export default function BankTransferPolling({
   orderAmount,
   expiresAt: expiresAtProp,
@@ -34,9 +22,9 @@ export default function BankTransferPolling({
   onNewAccount,
 }) {
   const canVerify = Boolean(verifyPayment);
-  const demo = DEV && !canVerify;
-  const account = accountProp ?? (DEV ? DEMO_ACCOUNT : null);
-  const unavailable = !account || (!canVerify && !DEV);
+  const demo = !canVerify;
+  const account = accountProp ?? DEMO_ACCOUNT;
+  const unavailable = !account;
 
   const [fallbackExpiry] = useState(() => Date.now() + DEFAULT_WINDOW_MS);
   const [clockOffset] = useState(() => (Number.isFinite(serverNow) ? serverNow - Date.now() : 0));
@@ -47,7 +35,7 @@ export default function BankTransferPolling({
   const [isChecking, setIsChecking] = useState(false);
   const [showTimeoutBanner, setShowTimeoutBanner] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState('');
-  const [partial, setPartial] = useState(null); // { paid: number | null }
+  const [partial, setPartial] = useState(null);
   const [checkFailed, setCheckFailed] = useState(false);
   const [pendingNote, setPendingNote] = useState(false);
   const [serverExpired, setServerExpired] = useState(false);
@@ -59,7 +47,6 @@ export default function BankTransferPolling({
   const inFlightRef = useRef(null);
   const expiredRef = useRef(false);
 
-  // Callbacks live in refs: a parent re-render with fresh inline functions must not restart the polling loop.
   const verifyRef = useRef(verifyPayment);
   const successRef = useRef(onPaymentSuccess);
   useEffect(() => {
@@ -67,7 +54,6 @@ export default function BankTransferPolling({
     successRef.current = onPaymentSuccess;
   });
 
-  // The countdown comes from a deadline, not from state that resets when this screen is reopened.
   const msLeft = expiresAt - (now + offset);
   const secondsRemaining = Math.max(0, Math.ceil(msLeft / 1000));
   const isExpired = secondsRemaining <= 0 || serverExpired;
@@ -86,26 +72,22 @@ export default function BankTransferPolling({
     };
   }, []);
 
-  // Clock tick
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
 
-  // "Still waiting" notice after 3 minutes
   useEffect(() => {
     const t = setTimeout(() => setShowTimeoutBanner(true), 180000);
     return () => clearTimeout(t);
   }, []);
 
-  // Only the first "paid" result may complete the order, however many checks race to report it.
   const settle = useCallback(() => {
     if (settledRef.current) return;
     settledRef.current = true;
     successRef.current?.();
   }, []);
 
-  // One check at a time. A manual tap while a poll is in flight shares that poll's result.
   const runCheck = useCallback(() => {
     if (!verifyRef.current || settledRef.current) return Promise.resolve(null);
     if (inFlightRef.current) return inFlightRef.current;
@@ -113,7 +95,6 @@ export default function BankTransferPolling({
     const p = (async () => {
       try {
         const result = await verifyRef.current();
-        // If the customer already left this screen, do not complete an order they walked away from.
         if (!mountedRef.current) return null;
         setCheckFailed(false);
 
@@ -127,7 +108,7 @@ export default function BankTransferPolling({
         }
         return result ?? null;
       } catch {
-        if (mountedRef.current) setCheckFailed(true); // non-blocking: the account stays valid
+        if (mountedRef.current) setCheckFailed(true);
         return null;
       }
     })();
@@ -139,7 +120,6 @@ export default function BankTransferPolling({
     return p;
   }, [settle]);
 
-  // Polling: every 5s for the first minute, every 10s until 5 minutes, then every 20s; every 30s once expired.
   useEffect(() => {
     if (!polling) return undefined;
 
@@ -165,7 +145,6 @@ export default function BankTransferPolling({
     };
   }, [polling, runCheck]);
 
-  // Customers leave for their bank app and come back: check the moment they return.
   useEffect(() => {
     if (!polling) return undefined;
     const onVisible = () => {
@@ -201,8 +180,6 @@ export default function BankTransferPolling({
       return;
     }
 
-    // Demo mode: development builds only (production never reaches this screen without verifyPayment).
-    if (!DEV) return;
     setIsChecking(true);
     demoTimer.current = setTimeout(() => {
       setIsChecking(false);
@@ -237,7 +214,6 @@ export default function BankTransferPolling({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Test controls. Development builds only, and only in demo mode. They can never reach a customer. */}
       {demo && (
         <div className="flex flex-col gap-2 rounded-lg border border-dashed border-border-visible bg-bg-canvas p-3">
           <span className="font-heading text-[13px] font-bold text-text-secondary">Development test controls</span>
@@ -294,7 +270,6 @@ export default function BankTransferPolling({
           </div>
           <button type="button" disabled={isExpired} onClick={() => handleCopy(String(orderAmount), 'Amount')} className={copyBtn}>Copy</button>
         </div>
-        {/* Right under the Copy buttons, where the eye already is. */}
         <p aria-live="polite" className="m-0 min-h-5 text-center text-[13px] font-medium text-status-success">{copyFeedback}</p>
       </div>
 
@@ -326,8 +301,6 @@ export default function BankTransferPolling({
         </div>
       )}
 
-      {/* The status label is the live region. The ticking timer is a separate element, so screen readers are
-          not interrupted every second. */}
       <div className="flex items-center justify-between gap-3 py-1 text-[14px]">
         {isExpired ? (
           <span role="status" className="flex items-center gap-1.5 font-medium text-status-error">
@@ -388,7 +361,6 @@ export default function BankTransferPolling({
       )}
 
       <div className="flex flex-col gap-1 pt-2 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]">
-        {/* Stays tappable when expired, in case they paid at the last second. */}
         <button
           type="button"
           disabled={isChecking}
