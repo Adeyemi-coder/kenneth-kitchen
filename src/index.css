@@ -1,5 +1,3 @@
-@import "@fontsource-variable/plus-jakarta-sans/index.css";
-@import "@fontsource-variable/dm-sans/index.css";
 @import "tailwindcss";
 
 @theme {
@@ -382,4 +380,3 @@ html[data-saver="true"] .data-saver-hide { display: none !important; }
   filter: blur(6px);
   z-index: 0;
 }
-
